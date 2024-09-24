@@ -1,0 +1,76 @@
+version: '3.3'
+
+services:
+
+  db:
+    container_name: pg_container
+    image: postgres:9.6
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123
+      POSTGRES_DB: demo
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7.0.11-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=my-password
+      - REDIS_PORT=6379
+      - REDIS_DATABASES=16
+  
+  backend:
+    build: .
+    container_name: b2_backend
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+  
+  celery_worker:
+    build: .
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - C_FORCE_ROOT=true
+    depends_on:
+      - redis
+      - backend
+  
+  celery_beat:
+    build: .
+    command: celery -A celery_app beat --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - C_FORCE_ROOT=true
+    depends_on:
+      - redis
+  
+  flower:
+    container_name: flower
+    build: .
+    command: celery -A celery_app flower --port=5555
+    restart: always
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - C_FORCE_ROOT=true
+    ports:
+      - "5555:5555"
+    depends_on:
+      - backend
+      - redis
+      - celery_worker
+
+networks:
+  default:
+      name: hello_fastapi
